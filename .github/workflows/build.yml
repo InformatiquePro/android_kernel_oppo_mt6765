@@ -28,10 +28,7 @@ jobs:
 
     - name: ⬇️ Download toolchains
       run: |
-        # Clone GCC
         git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 -b android11-release gcc-4.9
-        
-        # Clone Clang au lieu du wget qui renvoie une erreur 503
         git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b android10-dev clang-repo
         mv clang-repo/clang-r353983c clang
         rm -rf clang-repo
@@ -40,15 +37,23 @@ jobs:
       run: |
         echo "PATH=$(pwd)/gcc-4.9/bin:$(pwd)/clang/bin:$PATH" >> $GITHUB_ENV
 
-    - name: 🛠️ Clean missing Oppo Kconfigs
+    - name: 🛠️ Clean ALL missing Oppo Kconfigs automatically
       run: |
-        sed -i 's|source "kernel/sched_assist/Kconfig"|# source "kernel/sched_assist/Kconfig"|g' init/Kconfig
-        sed -i 's|source "kernel/locking/klockopt/Kconfig"|# source "kernel/locking/klockopt/Kconfig"|g' init/Kconfig
+        mkdir -p out
+        while ! make O=out ARCH=arm64 k65v1_64_bsp_defconfig 2> error.log; do
+          MISSING_FILE=$(grep "can't open file" error.log | head -n 1 | awk -F'"' '{print $2}')
+          if [ -z "$MISSING_FILE" ]; then
+            echo "❌ Autre erreur bloquante :"
+            cat error.log
+            exit 1
+          fi
+          echo "🔨 Correction du fichier fantôme : $MISSING_FILE"
+          find . -type f -name "*Kconfig*" -exec sed -i "s|source \"$MISSING_FILE\"|# source \"$MISSING_FILE\"|g" {} +
+        done
+        echo "✅ Kconfig généré avec succès !"
 
     - name: 🏗️ Build Kernel
       run: |
-        mkdir -p out
-        make O=out ARCH=arm64 k65v1_64_bsp_defconfig
         make O=out ARCH=arm64 olddefconfig
         make -j$(nproc --all) \
           ARCH=arm64 \
